@@ -3,14 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\ProductService;
+use App\Services\TransactionService;
 use Illuminate\Http\Request;
 
-class ProductController extends Controller
+class TransactionController extends Controller
 {
     protected $service;
 
-    public function __construct(ProductService $service)
+    public function __construct(TransactionService $service)
     {
         $this->service = $service;
     }
@@ -18,14 +18,14 @@ class ProductController extends Controller
     public function index(Request $request)
     {
         return response()->json(
-            $this->service->getAllProducts($request)
+            $this->service->getAll($request)
         );
     }
 
     public function store(Request $request)
     {
         return response()->json(
-            $this->service->createProduct($request),
+            $this->service->store($request),
             201
         );
     }
@@ -33,20 +33,21 @@ class ProductController extends Controller
     public function show(Request $request, $id)
     {
         return response()->json(
-            $this->service->getProduct($request, $id)
+            $this->service->show($request, $id)
         );
     }
 
     public function update(Request $request, $id)
     {
         return response()->json(
-            $this->service->updateProduct($request, $id)
+            $this->service->update($request, $id)
         );
     }
 
     public function destroy(Request $request, $id)
     {
-        $this->service->deleteProduct($request, $id);
-        return response()->json(['message' => 'Produk berhasil dihapus'], 200);
+        $this->service->delete($request, $id);
+
+        return response()->json(['message' => 'Transaksi berhasil dihapus'], 200);
     }
 }

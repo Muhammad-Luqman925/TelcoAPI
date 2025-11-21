@@ -3,92 +3,83 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Recommendation;
-use App\Models\Product;
+use App\Services\RecommendationService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 
 class RecommendationController extends Controller
 {
-    public function index()
-    {
-        $recommendations = Recommendation::with(['customer', 'items.product'])
-            ->orderByDesc('created_at')
-            ->paginate(10);
+    protected $recommendationService;
 
-        return response()->json($recommendations);
+    public function __construct(RecommendationService $recommendationService)
+    {
+        $this->recommendationService = $recommendationService;
     }
 
-    public function generate(Request $request)
+    /**
+     * POST /recommendations/generate
+     */
+    public function store(Request $request)
     {
         $request->validate([
             'customer_id' => 'required|exists:customers,id',
         ]);
 
-        $customerId = $request->customer_id;
-        $userId = $request->user()->id;
+        // Ambil user ID dari token yang login (Staff/Admin)
+        $userId = $request->user()->id; 
 
-        try {
-            $response = Http::timeout(5)->post(
-                env('ML_API_URL', 'http://127.0.0.1:5000/api/recommend'),
-                ['customer_id' => $customerId]
-            );
+        // Panggil Service Generate (pakai logic ML yang lama)
+        // Pastikan di Service function ini sudah disesuaikan pakai Repository
+        $result = $this->recommendationService->generateRecommendation(
+            $request->customer_id,
+            $userId
+        );
 
-            if ($response->successful()) {
-                $data = $response->json();
-
-                if (!isset($data['recommended_products'])) {
-                    throw new \Exception('Invalid ML API response format');
-                }
-
-                $recommendation = Recommendation::create([
-                    'customer_id' => $customerId,
-                    'recommended_by' => $userId,
-                ]);
-
-                foreach ($data['recommended_products'] as $index => $p) {
-                    $recommendation->items()->create([
-                        'product_id' => $p['id'],
-                        'score' => $p['score'] ?? null,
-                        'rank' => $index + 1,
-                    ]);
-                }
-
-                return response()->json([
-                    'message' => 'Recommendation generated via ML API',
-                    'source' => 'ML',
-                    'data' => $recommendation->load('items.product'),
-                ]);
-            }
-
-            throw new \Exception('ML API error: ' . $response->status());
+        if (isset($result['error'])) {
+            return response()->json(['status' => 'error', 'message' => $result['error']], 500);
         }
 
-        catch (\Throwable $th) {
-            Log::warning('ML API unavailable, fallback activated: ' . $th->getMessage());
+        return response()->json([
+            'status' => 'success', 
+            'message' => 'Rekomendasi berhasil dibuat',
+            'data' => $result['data'] ?? $result
+        ]);
+    }
 
-            $products = Product::inRandomOrder()->take(3)->get();
+    /**
+     * GET /recommendations/history
+     */
+    public function index()
+    {
+        $history = $this->recommendationService->getHistory();
 
-            $recommendation = Recommendation::create([
-                'customer_id' => $customerId,
-                'recommended_by' => $userId,
-            ]);
+        return response()->json([
+            'status' => 'success',
+            'data' => $history
+        ]);
+    }
 
-            $rank = 1;
-            foreach ($products as $p) {
-                $recommendation->items()->create([
-                    'product_id' => $p->id,
-                    'score' => fake()->randomFloat(2, 0.5, 1.0),
-                    'rank' => $rank++,
-                ]);
-            }
+    /**
+     * POST /recommendations/{id}/override
+     */
+    public function override(Request $request, $id)
+    {
+        // 1. Validasi Input
+        $request->validate([
+            'product_id' => 'required|exists:products,id', // Produk pengganti harus ada
+            'reason'     => 'required|string|max:255',     // Alasan wajib diisi
+        ]);
 
-            return response()->json([
-                'message' => 'ML API unavailable, fallback used',
-                'source' => 'fallback',
-                'data' => $recommendation->load('items.product'),
-            ]);
-        }
+        // 2. Panggil Service Override
+        $result = $this->recommendationService->overrideRecommendation(
+            $id,
+            $request->product_id,
+            $request->reason
+        );
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Rekomendasi berhasil di-override manual',
+            'data' => $result
+        ]);
     }
 }
